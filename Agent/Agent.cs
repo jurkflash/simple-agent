@@ -1,6 +1,5 @@
 using System.Text.Json;
 using SimpleAgent.Models;
-using SimpleAgent.Tools;
 
 namespace SimpleAgent;
 
@@ -10,17 +9,18 @@ public sealed class Agent
     private const int MaxRetries = 2;
     private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(500);
     private readonly LlmClient _llmClient;
-    private readonly Dictionary<string, ITool> _tools;
+    private readonly CqrsToolAdapter _cqrsToolAdapter;
 
-    public Agent(LlmClient llmClient, IEnumerable<ITool> tools)
+    public Agent(LlmClient llmClient, CqrsToolAdapter cqrsToolAdapter)
     {
         _llmClient = llmClient;
-        _tools = tools.ToDictionary(tool => tool.Name, StringComparer.OrdinalIgnoreCase);
+        _cqrsToolAdapter = cqrsToolAdapter;
     }
 
     public async Task RunAsync(string goal)
     {
         var state = new AgentState(goal);
+
         try
         {
             var iterationCount = 0;
@@ -52,21 +52,20 @@ public sealed class Agent
                 switch (decision.Action)
                 {
                     case DecisionAction.GetComplaints:
-                    case DecisionAction.FormatReport:
-                        if (!TryValidateToolExecution(decision, out var tool, out var validationError))
+                        if (!TryValidateActionExecution(decision, out var validationError))
                         {
                             StopWithError(state, iterationCount, validationError);
                             return;
                         }
 
-                        var toolResult = await ExecuteToolWithRetryAsync(state, tool!, decision);
-                        if (!toolResult.Success)
+                        var actionResult = await ExecuteActionWithRetryAsync(state, decision);
+                        if (!actionResult.Success)
                         {
-                            StopWithError(state, iterationCount, "Tool execution failed after retries", toolResult.ErrorMessage);
+                            StopWithError(state, iterationCount, "Tool execution failed after retries", actionResult.ErrorMessage);
                             return;
                         }
 
-                        state.LastToolResult = toolResult.Result;
+                        state.LastToolResult = actionResult.Result;
                         break;
 
                     case DecisionAction.Finish:
@@ -124,12 +123,13 @@ public sealed class Agent
         return new DecisionAttemptResult(false, null, null, lastError);
     }
 
-    private async Task<ToolAttemptResult> ExecuteToolWithRetryAsync(AgentState state, ITool tool, Decision decision)
+    private async Task<ActionAttemptResult> ExecuteActionWithRetryAsync(AgentState state, Decision decision)
     {
-        Console.WriteLine($"Tool: {tool.Name}");
-        Console.WriteLine("Tool input:");
+        var actionName = GetActionName(decision.Action);
+
+        Console.WriteLine("Action input:");
         Console.WriteLine(FormatJson(decision.Input));
-        state.AddHistory($"Tool execution: {tool.Name}");
+        state.AddHistory($"Action execution: {actionName}");
 
         string? lastError = null;
 
@@ -137,17 +137,17 @@ public sealed class Agent
         {
             try
             {
-                var result = await tool.ExecuteAsync(decision.Input);
+                var result = await _cqrsToolAdapter.ExecuteAsync(decision.Action, decision.Input);
                 if (ErrorResult.TryGetMessage(result, out var error))
                 {
                     lastError = error;
                 }
                 else
                 {
-                    state.AddHistory($"Tool result: {result}");
-                    Console.WriteLine("Tool output:");
+                    state.AddHistory($"Action result: {result}");
+                    Console.WriteLine("Action output:");
                     Console.WriteLine(FormatOutput(result));
-                    return new ToolAttemptResult(true, result, null);
+                    return new ActionAttemptResult(true, result, null);
                 }
             }
             catch (Exception exception)
@@ -157,50 +157,16 @@ public sealed class Agent
 
             if (attempt < MaxRetries)
             {
-                Console.WriteLine($"[Retry {attempt + 1}/{MaxRetries}] Tool {tool.Name} failed: {lastError}");
+                Console.WriteLine($"[Retry {attempt + 1}/{MaxRetries}] Action {actionName} failed: {lastError}");
             }
         }
 
-        return new ToolAttemptResult(false, null, lastError);
+        return new ActionAttemptResult(false, null, lastError);
     }
 
-    private bool TryValidateToolExecution(Decision decision, out ITool? tool, out string error)
+    private bool TryValidateActionExecution(Decision decision, out string error)
     {
-        if (!TryGetToolName(decision.Action, out var toolName))
-        {
-            tool = null;
-            error = "Unknown action";
-            return false;
-        }
-
-        if (!_tools.TryGetValue(toolName, out tool))
-        {
-            error = $"Tool '{toolName}' not found.";
-            return false;
-        }
-
-        if (!tool.TryValidateInput(decision.Input, out error))
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-    private static bool TryGetToolName(DecisionAction action, out string toolName)
-    {
-        switch (action)
-        {
-            case DecisionAction.GetComplaints:
-                toolName = "get_complaints";
-                return true;
-            case DecisionAction.FormatReport:
-                toolName = "format_report";
-                return true;
-            default:
-                toolName = string.Empty;
-                return false;
-        }
+        return _cqrsToolAdapter.TryValidateAction(decision.Action, decision.Input, out error);
     }
 
     private static string GetActionName(DecisionAction action)
@@ -208,7 +174,6 @@ public sealed class Agent
         return action switch
         {
             DecisionAction.GetComplaints => "get_complaints",
-            DecisionAction.FormatReport => "format_report",
             DecisionAction.Finish => "finish",
             _ => "unknown"
         };
@@ -258,5 +223,5 @@ public sealed class Agent
 
     private sealed record DecisionAttemptResult(bool Success, string? DecisionJson, Decision? Decision, string? ErrorMessage);
 
-    private sealed record ToolAttemptResult(bool Success, string? Result, string? ErrorMessage);
+    private sealed record ActionAttemptResult(bool Success, string? Result, string? ErrorMessage);
 }
