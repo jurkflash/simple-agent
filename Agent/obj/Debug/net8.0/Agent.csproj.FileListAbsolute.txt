@@ -1,0 +1,15 @@
+/home/runner/work/simple-agent/simple-agent/Agent/bin/Debug/net8.0/Agent
+/home/runner/work/simple-agent/simple-agent/Agent/bin/Debug/net8.0/Agent.deps.json
+/home/runner/work/simple-agent/simple-agent/Agent/bin/Debug/net8.0/Agent.runtimeconfig.json
+/home/runner/work/simple-agent/simple-agent/Agent/bin/Debug/net8.0/Agent.dll
+/home/runner/work/simple-agent/simple-agent/Agent/bin/Debug/net8.0/Agent.pdb
+/home/runner/work/simple-agent/simple-agent/Agent/obj/Debug/net8.0/Agent.GeneratedMSBuildEditorConfig.editorconfig
+/home/runner/work/simple-agent/simple-agent/Agent/obj/Debug/net8.0/Agent.AssemblyInfoInputs.cache
+/home/runner/work/simple-agent/simple-agent/Agent/obj/Debug/net8.0/Agent.AssemblyInfo.cs
+/home/runner/work/simple-agent/simple-agent/Agent/obj/Debug/net8.0/Agent.csproj.CoreCompileInputs.cache
+/home/runner/work/simple-agent/simple-agent/Agent/obj/Debug/net8.0/Agent.sourcelink.json
+/home/runner/work/simple-agent/simple-agent/Agent/obj/Debug/net8.0/Agent.dll
+/home/runner/work/simple-agent/simple-agent/Agent/obj/Debug/net8.0/refint/Agent.dll
+/home/runner/work/simple-agent/simple-agent/Agent/obj/Debug/net8.0/Agent.pdb
+/home/runner/work/simple-agent/simple-agent/Agent/obj/Debug/net8.0/Agent.genruntimeconfig.cache
+/home/runner/work/simple-agent/simple-agent/Agent/obj/Debug/net8.0/ref/Agent.dll
