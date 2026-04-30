@@ -39,7 +39,7 @@ public sealed class LlmClient
                 new
                 {
                     role = "system",
-                    content = "You are an agent planner. Respond with JSON only. Use this schema: { \"action\": \"get_complaints\" | \"format_report\" | \"finish\", \"input\": { ... }, \"output\": \"...\" }. For tool actions, input must always be a JSON object that matches the tool schema exactly. Do not return plain string input."
+                    content = "You are an agent planner. Respond with JSON only. Use this schema: { \"action\": \"get_complaints\" | \"finish\", \"input\": { ... }, \"output\": \"...\" }. For get_complaints, input must always be a JSON object that matches the schema exactly. Do not return plain string input."
                 },
                 new
                 {
@@ -104,26 +104,15 @@ History:
 
 Return the next decision as JSON only.
 
-Tool: get_complaints
+Action: get_complaints
 Input:
 {
   "month": "YYYY-MM"
 }
 
-Tool: format_report
-Input:
-{
-  "month": "YYYY-MM",
-  "complaints": [
-    {
-      "category": "Noise",
-      "count": 12
-    }
-  ]
-}
-
-If more tool work is needed, set action to \"get_complaints\" or \"format_report\" and provide a structured object in \"input\".
-If the task is complete, set action to \"finish\" and put the final answer in \"output\".
+If more data is needed, set action to "get_complaints" and provide a structured object in "input".
+After complaint data is returned, summarize it and respond with action "finish".
+If the task is complete, set action to "finish" and put the final answer in "output".
 """;
     }
 }

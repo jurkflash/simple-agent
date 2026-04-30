@@ -36,7 +36,7 @@ public sealed class Decision
             }
 
             var action = actionElement.GetString();
-            if (action is not ("get_complaints" or "format_report" or "finish"))
+            if (action is not ("get_complaints" or "finish"))
             {
                 decision = null;
                 error = "Unknown action";
@@ -65,6 +65,5 @@ public sealed class Decision
 public enum DecisionAction
 {
     GetComplaints,
-    FormatReport,
     Finish
 }
