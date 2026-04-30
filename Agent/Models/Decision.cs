@@ -17,19 +17,54 @@ public sealed class Decision
 
     public DecisionAction Action { get; init; }
 
-    public string? Input { get; init; }
+    public JsonElement Input { get; init; }
 
     public string? Output { get; init; }
 
-    public static Decision FromJson(string json)
+    public static bool TryFromJson(string json, out Decision? decision, out string error)
     {
-        var decision = JsonSerializer.Deserialize<Decision>(json, SerializerOptions);
-        return decision ?? throw new InvalidOperationException("LLM returned an empty decision.");
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                !document.RootElement.TryGetProperty("action", out var actionElement) ||
+                actionElement.ValueKind != JsonValueKind.String)
+            {
+                decision = null;
+                error = "Unknown action";
+                return false;
+            }
+
+            var action = actionElement.GetString();
+            if (action is not ("get_complaints" or "format_report" or "finish"))
+            {
+                decision = null;
+                error = "Unknown action";
+                return false;
+            }
+
+            decision = JsonSerializer.Deserialize<Decision>(json, SerializerOptions);
+            if (decision is null)
+            {
+                error = "LLM returned an empty decision.";
+                return false;
+            }
+
+            error = string.Empty;
+            return true;
+        }
+        catch (JsonException exception)
+        {
+            decision = null;
+            error = $"Decision JSON is invalid: {exception.Message}";
+            return false;
+        }
     }
 }
 
 public enum DecisionAction
 {
     GetComplaints,
+    FormatReport,
     Finish
 }
