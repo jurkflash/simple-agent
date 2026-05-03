@@ -1,9 +1,10 @@
+using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Pokok.BuildingBlocks.Cqrs.Dispatching;
-using Pokok.BuildingBlocks.Cqrs.Extensions;
-using SimpleAgent.Application.Queries;
-using SimpleAgent.Models;
+using SimpleAgent.Application;
+using SimpleAgent.Application.Agents;
+using SimpleAgent.Domain.Models;
+using SimpleAgent.Infrastructure;
 
 namespace SimpleAgent;
 
@@ -11,14 +12,21 @@ internal static class Program
 {
     private static async Task Main()
     {
+        using var bootstrapLoggerFactory = CreateLoggerFactory();
+        var logger = bootstrapLoggerFactory.CreateLogger("Program");
+
         try
         {
             const string goal = "Generate complaint summary for April";
+            var correlationId = Guid.NewGuid().ToString();
 
             var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
             if (string.IsNullOrWhiteSpace(apiKey))
             {
-                Console.WriteLine(ErrorResult.Create("OPENAI_API_KEY is required"));
+                logger.LogError(
+                    "[TraceId: {CorrelationId}] {Error}",
+                    correlationId,
+                    ErrorResult.Create("OPENAI_API_KEY is required"));
                 return;
             }
 
@@ -27,11 +35,24 @@ internal static class Program
             using var scope = serviceProvider.CreateScope();
 
             var agent = scope.ServiceProvider.GetRequiredService<Agent>();
-            await agent.RunAsync(goal);
+            var result = await agent.RunAsync(goal, correlationId);
+
+            logger.LogInformation(
+                "[TraceId: {CorrelationId}] Agent run summary {Summary}",
+                correlationId,
+                JsonSerializer.Serialize(result.Summary, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    WriteIndented = true
+                }));
+            logger.LogInformation(
+                "[TraceId: {CorrelationId}] Final output {Output}",
+                correlationId,
+                TraceLogSanitizer.Truncate(result.Output));
         }
         catch (Exception exception)
         {
-            Console.WriteLine(ErrorResult.Create(exception.Message));
+            logger.LogError(exception, "{Error}", ErrorResult.Create(exception.Message));
         }
     }
 
@@ -41,17 +62,32 @@ internal static class Program
 
         services.AddLogging(builder =>
         {
-            builder.AddSimpleConsole(options => options.SingleLine = true);
-            builder.SetMinimumLevel(LogLevel.Warning);
+            builder.AddSimpleConsole(options =>
+            {
+                options.SingleLine = true;
+                options.IncludeScopes = true;
+                options.TimestampFormat = "HH:mm:ss.fff ";
+            });
+            builder.SetMinimumLevel(LogLevel.Information);
         });
 
-        services.AddScoped<IQueryDispatcher, QueryDispatcher>();
-        services.AddQueryHandler<GetComplaintsQuery, IReadOnlyList<ComplaintCountResult>, GetComplaintsQueryHandler>();
-
-        services.AddScoped(_ => new LlmClient(httpClient, apiKey));
-        services.AddScoped<CqrsToolAdapter>();
-        services.AddScoped<Agent>();
+        services.AddApplication();
+        services.AddInfrastructure(httpClient, apiKey);
 
         return services.BuildServiceProvider();
+    }
+
+    private static ILoggerFactory CreateLoggerFactory()
+    {
+        return LoggerFactory.Create(builder =>
+        {
+            builder.AddSimpleConsole(options =>
+            {
+                options.SingleLine = true;
+                options.IncludeScopes = true;
+                options.TimestampFormat = "HH:mm:ss.fff ";
+            });
+            builder.SetMinimumLevel(LogLevel.Information);
+        });
     }
 }

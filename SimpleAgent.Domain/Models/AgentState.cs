@@ -1,13 +1,16 @@
-namespace SimpleAgent.Models;
+namespace SimpleAgent.Domain.Models;
 
 public sealed class AgentState
 {
-    public AgentState(string goal)
+    public AgentState(string goal, string correlationId)
     {
         Goal = goal;
+        CorrelationId = correlationId;
     }
 
     public string Goal { get; }
+
+    public string CorrelationId { get; }
 
     public bool IsFinished { get; set; }
 

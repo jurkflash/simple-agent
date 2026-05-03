@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace SimpleAgent.Models;
+namespace SimpleAgent.Domain.Models;
 
 public sealed class ErrorResult
 {
