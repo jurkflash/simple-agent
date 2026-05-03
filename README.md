@@ -24,12 +24,17 @@
   - step-level tracing for LLM decisions, validation, CQRS dispatch, and tool results
   - timing for total run duration, step duration, LLM calls, and CQRS execution
   - run summary output with success/failure metadata
+- **Agent run persistence**:
+  - `AgentRun` aggregate root with child `AgentStep` records
+  - run state transitions handled in the domain (`AddStep`, `Complete`, `Fail`)
+  - SQLite-backed persistence through `Pokok.BuildingBlocks.Persistence`
+  - execution history stored per correlation ID
 - **Layered solution structure**:
   - `Agent`: hosted worker entrypoint / composition root
   - `SimpleAgent.Api`: ASP.NET Core API publisher and response listener
-  - `SimpleAgent.Domain`: core models
+  - `SimpleAgent.Domain`: core models and persisted agent run aggregate
   - `SimpleAgent.Application`: agent orchestration, use-case logic, abstractions
-  - `SimpleAgent.Infrastructure`: OpenAI client, CQRS adapter, correlation context, permission service
+  - `SimpleAgent.Infrastructure`: OpenAI client, CQRS adapter, correlation context, permission service, persistence
 
 ## Current flow
 
@@ -41,8 +46,9 @@
 6. The decision is parsed and validated against allowed actions.
 7. If the action is `get_complaints`, the request is mapped to a CQRS query and dispatched.
 8. The tool result is added to history until the agent finishes.
-9. The worker publishes an `AgentResultMessage` to the reply queue (`agent-responses`).
-10. The API response listener matches the correlation ID, completes the pending request, and the HTTP endpoint returns the result or a timeout/error response.
+9. The worker persists the `AgentRun` and each `AgentStep` as the execution progresses.
+10. The worker publishes an `AgentResultMessage` to the reply queue (`agent-responses`).
+11. The API response listener matches the correlation ID, completes the pending request, and the HTTP endpoint returns the result or a timeout/error response.
 
 ## Message contract
 
@@ -88,9 +94,9 @@ Response messages in `agent-responses` use this shape:
 ```text
 Agent/                      Hosted worker entrypoint, queue consumer, and composition root
 SimpleAgent.Api/            ASP.NET Core API, request publisher, response listener
-SimpleAgent.Domain/         Agent state, decisions, errors, run summary
+SimpleAgent.Domain/         Agent state, decisions, errors, run summary, AgentRun aggregate
 SimpleAgent.Application/    Agent loop, action definitions, abstractions, queries
-SimpleAgent.Infrastructure/ OpenAI client, CQRS tool adapter, permissions, correlation context
+SimpleAgent.Infrastructure/ OpenAI client, CQRS tool adapter, permissions, correlation context, EF persistence
 ```
 
 ## Run locally
@@ -127,6 +133,12 @@ RabbitMQ__UserName=guest
 RabbitMQ__Password=guest
 ```
 
+Agent run persistence uses the `ConnectionStrings__AgentRuns` setting and falls back to a local SQLite file when the connection string is not provided:
+
+```text
+ConnectionStrings__AgentRuns=Data Source=agent-runs.db
+```
+
 ## Build
 
 ```powershell
@@ -136,4 +148,5 @@ dotnet build simple-agent.sln
 ## Notes
 
 - Prompt and raw LLM response logging is truncated to reduce the risk of leaking sensitive data.
+- The worker creates the SQLite database automatically on startup if it does not exist yet.
 - The project is intentionally simple: it demonstrates the mechanics of an AI agent without introducing external observability tooling or a large action catalog.
