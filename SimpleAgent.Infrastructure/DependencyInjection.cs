@@ -8,17 +8,20 @@ namespace SimpleAgent.Infrastructure;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddInfrastructure(this IServiceCollection services, HttpClient httpClient, string apiKey)
+    public static IServiceCollection AddInfrastructure(this IServiceCollection services, string apiKey)
     {
         services.AddSingleton<ICorrelationContextAccessor, CorrelationContextAccessor>();
+        services.AddSingleton<HttpClient>();
         services.AddScoped<IQueryDispatcher, QueryDispatcher>();
         services.AddScoped<IAgentPermissionService, DefaultAgentPermissionService>();
-        services.AddScoped<ILlmClient>(serviceProvider => new LlmClient(
-            httpClient,
+        services.AddScoped<LlmClient>(serviceProvider => new LlmClient(
+            serviceProvider.GetRequiredService<HttpClient>(),
             apiKey,
             serviceProvider.GetRequiredService<ICorrelationContextAccessor>(),
             serviceProvider.GetRequiredService<ILogger<LlmClient>>()));
-        services.AddScoped<IAgentToolExecutor, CqrsToolAdapter>();
+        services.AddScoped<ILlmClient>(serviceProvider => serviceProvider.GetRequiredService<LlmClient>());
+        services.AddScoped<CqrsToolAdapter>();
+        services.AddScoped<IAgentToolExecutor>(serviceProvider => serviceProvider.GetRequiredService<CqrsToolAdapter>());
         return services;
     }
 }
