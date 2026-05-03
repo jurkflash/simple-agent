@@ -1,0 +1,11 @@
+@SimpleAgent.Api_HostAddress = http://localhost:5079
+
+POST {{SimpleAgent.Api_HostAddress}}/agent/run
+Accept: application/json
+Content-Type: application/json
+
+{
+  "goal": "Generate complaint summary for April"
+}
+
+###

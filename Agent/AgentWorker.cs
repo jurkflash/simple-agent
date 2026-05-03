@@ -7,6 +7,7 @@ using Pokok.BuildingBlocks.Messaging.RabbitMQ;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using SimpleAgent.Application.Agents;
+using SimpleAgent.Domain.Messaging;
 
 namespace SimpleAgent;
 
@@ -95,6 +96,11 @@ public sealed class AgentWorker : BackgroundService
                 throw new InvalidOperationException("Agent job message correlation ID is required.");
             }
 
+            if (string.IsNullOrWhiteSpace(message.ReplyTo))
+            {
+                throw new InvalidOperationException("Agent job message reply queue is required.");
+            }
+
             _logger.LogInformation(
                 "[TraceId: {CorrelationId}] Message received from queue {QueueName} with goal {Goal}",
                 message.CorrelationId,
@@ -108,16 +114,45 @@ public sealed class AgentWorker : BackgroundService
                 "[TraceId: {CorrelationId}] Starting agent job processing",
                 message.CorrelationId);
 
-            var result = await agent.RunAsync(message.Goal, message.CorrelationId, cancellationToken);
+            AgentResultMessage resultMessage;
 
-            _logger.LogInformation(
-                "[TraceId: {CorrelationId}] Finished agent job processing with success={Success}, finalAction={FinalAction}, output={Output}",
-                result.Summary.CorrelationId,
-                result.Summary.Success,
-                result.Summary.FinalAction,
-                TraceLogSanitizer.Truncate(result.Output));
+            try
+            {
+                var result = await agent.RunAsync(message.Goal, message.CorrelationId, cancellationToken);
 
-            // Future improvement: publish result metadata/output to a dedicated completion queue.
+                _logger.LogInformation(
+                    "[TraceId: {CorrelationId}] Finished agent job processing with success={Success}, finalAction={FinalAction}, output={Output}",
+                    result.Summary.CorrelationId,
+                    result.Summary.Success,
+                    result.Summary.FinalAction,
+                    TraceLogSanitizer.Truncate(result.Output));
+
+                resultMessage = new AgentResultMessage
+                {
+                    CorrelationId = result.Summary.CorrelationId,
+                    Success = result.Summary.Success,
+                    Result = result.Summary.Success ? result.Output : null,
+                    Error = result.Summary.Success ? null : result.Summary.Error ?? result.Output
+                };
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(
+                    exception,
+                    "[TraceId: {CorrelationId}] Agent execution failed for goal {Goal}",
+                    message.CorrelationId,
+                    message.Goal);
+
+                resultMessage = new AgentResultMessage
+                {
+                    CorrelationId = message.CorrelationId,
+                    Success = false,
+                    Result = null,
+                    Error = exception.Message
+                };
+            }
+
+            await PublishResultAsync(message.ReplyTo, resultMessage, cancellationToken);
             await _channel!.BasicAckAsync(eventArgs.DeliveryTag, multiple: false, cancellationToken: cancellationToken);
         }
         catch (Exception exception)
@@ -134,5 +169,38 @@ public sealed class AgentWorker : BackgroundService
                 requeue: true,
                 cancellationToken: cancellationToken);
         }
+    }
+
+    private async Task PublishResultAsync(string replyQueue, AgentResultMessage resultMessage, CancellationToken cancellationToken)
+    {
+        await _channel!.QueueDeclareAsync(
+            queue: replyQueue,
+            durable: true,
+            exclusive: false,
+            autoDelete: false,
+            arguments: null,
+            cancellationToken: cancellationToken);
+
+        var payload = JsonSerializer.Serialize(resultMessage);
+        var body = Encoding.UTF8.GetBytes(payload);
+        var properties = new BasicProperties
+        {
+            ContentType = "application/json",
+            DeliveryMode = DeliveryModes.Persistent
+        };
+
+        await _channel.BasicPublishAsync(
+            exchange: string.Empty,
+            routingKey: replyQueue,
+            mandatory: true,
+            basicProperties: properties,
+            body: body,
+            cancellationToken: cancellationToken);
+
+        _logger.LogInformation(
+            "[TraceId: {CorrelationId}] Published agent response to queue {QueueName} with success={Success}",
+            resultMessage.CorrelationId,
+            replyQueue,
+            resultMessage.Success);
     }
 }
