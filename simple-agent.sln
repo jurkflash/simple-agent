@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleAgent.Application", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleAgent.Infrastructure", "SimpleAgent.Infrastructure\SimpleAgent.Infrastructure.csproj", "{070E119D-ACDC-4945-8912-6A4271A110C6}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleAgent.Api", "SimpleAgent.Api\SimpleAgent.Api.csproj", "{5206F2DA-61C9-468B-8168-6998C059A49E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -69,6 +71,18 @@ Global
 		{070E119D-ACDC-4945-8912-6A4271A110C6}.Release|x64.Build.0 = Release|Any CPU
 		{070E119D-ACDC-4945-8912-6A4271A110C6}.Release|x86.ActiveCfg = Release|Any CPU
 		{070E119D-ACDC-4945-8912-6A4271A110C6}.Release|x86.Build.0 = Release|Any CPU
+		{5206F2DA-61C9-468B-8168-6998C059A49E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5206F2DA-61C9-468B-8168-6998C059A49E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5206F2DA-61C9-468B-8168-6998C059A49E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{5206F2DA-61C9-468B-8168-6998C059A49E}.Debug|x64.Build.0 = Debug|Any CPU
+		{5206F2DA-61C9-468B-8168-6998C059A49E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{5206F2DA-61C9-468B-8168-6998C059A49E}.Debug|x86.Build.0 = Debug|Any CPU
+		{5206F2DA-61C9-468B-8168-6998C059A49E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5206F2DA-61C9-468B-8168-6998C059A49E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5206F2DA-61C9-468B-8168-6998C059A49E}.Release|x64.ActiveCfg = Release|Any CPU
+		{5206F2DA-61C9-468B-8168-6998C059A49E}.Release|x64.Build.0 = Release|Any CPU
+		{5206F2DA-61C9-468B-8168-6998C059A49E}.Release|x86.ActiveCfg = Release|Any CPU
+		{5206F2DA-61C9-468B-8168-6998C059A49E}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
