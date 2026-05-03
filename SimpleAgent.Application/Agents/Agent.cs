@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using SimpleAgent.Application.Abstractions;
+using Pokok.BuildingBlocks.Persistence.Abstractions;
+using SimpleAgent.Domain.Agents;
 using SimpleAgent.Domain.Models;
 
 namespace SimpleAgent.Application.Agents;
@@ -14,17 +16,23 @@ public sealed class Agent
     private readonly ILlmClient _llmClient;
     private readonly IAgentToolExecutor _toolExecutor;
     private readonly ICorrelationContextAccessor _correlationContextAccessor;
+    private readonly IAgentRunRepository _agentRunRepository;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<Agent> _logger;
 
     public Agent(
         ILlmClient llmClient,
         IAgentToolExecutor toolExecutor,
         ICorrelationContextAccessor correlationContextAccessor,
+        IAgentRunRepository agentRunRepository,
+        IUnitOfWork unitOfWork,
         ILogger<Agent> logger)
     {
         _llmClient = llmClient;
         _toolExecutor = toolExecutor;
         _correlationContextAccessor = correlationContextAccessor;
+        _agentRunRepository = agentRunRepository;
+        _unitOfWork = unitOfWork;
         _logger = logger;
     }
 
@@ -46,6 +54,7 @@ public sealed class Agent
         });
 
         var state = new AgentState(goal, correlationId);
+        var agentRun = new AgentRun(correlationId, goal);
         var totalStopwatch = Stopwatch.StartNew();
         var iterationCount = 0;
         var finalAction = "unknown";
@@ -58,6 +67,8 @@ public sealed class Agent
                 "[TraceId: {CorrelationId}] Agent run started for goal {Goal}",
                 correlationId,
                 goal);
+            await _agentRunRepository.AddAsync(agentRun, cancellationToken);
+            await _unitOfWork.CompleteAsync(cancellationToken);
 
             while (!state.IsFinished)
             {
@@ -67,7 +78,7 @@ public sealed class Agent
                 if (iterationCount > MaxIterations)
                 {
                     error = "Max iterations reached";
-                    return CompleteRun(state, totalStopwatch, MaxIterations, false, finalAction, error);
+                    return await CompleteRunAsync(state, agentRun, totalStopwatch, MaxIterations, false, finalAction, error, cancellationToken);
                 }
 
                 _logger.LogInformation(
@@ -79,7 +90,9 @@ public sealed class Agent
                 if (!decisionResult.Success)
                 {
                     error = decisionResult.ErrorMessage ?? "LLM call failed";
-                    return CompleteRun(state, totalStopwatch, iterationCount, false, finalAction, error);
+                    agentRun.AddStep(iterationCount, "llm_decision", null, null, error, 0);
+                    await _unitOfWork.CompleteAsync(cancellationToken);
+                    return await CompleteRunAsync(state, agentRun, totalStopwatch, iterationCount, false, finalAction, error, cancellationToken);
                 }
 
                 var decision = decisionResult.Decision!;
@@ -112,17 +125,41 @@ public sealed class Agent
                         if (!validation.IsValid)
                         {
                             error = validation.Error;
-                            return CompleteRun(state, totalStopwatch, iterationCount, false, finalAction, error);
+                            agentRun.AddStep(
+                                iterationCount,
+                                finalAction,
+                                TraceLogSanitizer.Truncate(TraceLogSanitizer.FormatJson(decision.Input)),
+                                null,
+                                error,
+                                0);
+                            await _unitOfWork.CompleteAsync(cancellationToken);
+                            return await CompleteRunAsync(state, agentRun, totalStopwatch, iterationCount, false, finalAction, error, cancellationToken);
                         }
 
                         var actionResult = await ExecuteActionWithRetryAsync(state, decision, iterationCount, cancellationToken);
                         if (!actionResult.Success)
                         {
                             error = actionResult.ErrorMessage ?? "Tool execution failed after retries";
-                            return CompleteRun(state, totalStopwatch, iterationCount, false, finalAction, error);
+                            agentRun.AddStep(
+                                iterationCount,
+                                finalAction,
+                                TraceLogSanitizer.Truncate(TraceLogSanitizer.FormatJson(decision.Input)),
+                                null,
+                                error,
+                                0);
+                            await _unitOfWork.CompleteAsync(cancellationToken);
+                            return await CompleteRunAsync(state, agentRun, totalStopwatch, iterationCount, false, finalAction, error, cancellationToken);
                         }
 
                         state.LastToolResult = actionResult.Result;
+                        agentRun.AddStep(
+                            iterationCount,
+                            finalAction,
+                            TraceLogSanitizer.Truncate(TraceLogSanitizer.FormatJson(decision.Input)),
+                            TraceLogSanitizer.Truncate(TraceLogSanitizer.FormatOutput(actionResult.Result!)),
+                            null,
+                            actionResult.DurationMs ?? 0);
+                        await _unitOfWork.CompleteAsync(cancellationToken);
                         break;
 
                     case DecisionAction.Finish:
@@ -134,11 +171,21 @@ public sealed class Agent
                             correlationId,
                             iterationCount,
                             TraceLogSanitizer.Truncate(state.FinalOutput));
+                        agentRun.AddStep(
+                            iterationCount,
+                            finalAction,
+                            null,
+                            TraceLogSanitizer.Truncate(state.FinalOutput),
+                            null,
+                            0);
+                        await _unitOfWork.CompleteAsync(cancellationToken);
                         break;
 
                     default:
                         error = "Unknown action";
-                        return CompleteRun(state, totalStopwatch, iterationCount, false, finalAction, error);
+                        agentRun.AddStep(iterationCount, finalAction, null, null, error, 0);
+                        await _unitOfWork.CompleteAsync(cancellationToken);
+                        return await CompleteRunAsync(state, agentRun, totalStopwatch, iterationCount, false, finalAction, error, cancellationToken);
                 }
 
                 stepStopwatch.Stop();
@@ -150,7 +197,7 @@ public sealed class Agent
                     finalAction);
             }
 
-            return CompleteRun(state, totalStopwatch, iterationCount, true, finalAction, null);
+            return await CompleteRunAsync(state, agentRun, totalStopwatch, iterationCount, true, finalAction, null, cancellationToken);
         }
         catch (Exception exception)
         {
@@ -161,7 +208,19 @@ public sealed class Agent
                 finalAction,
                 TraceLogSanitizer.Truncate(TraceLogSanitizer.FormatJson(lastInput)));
             error = exception.Message;
-            return CompleteRun(state, totalStopwatch, iterationCount, false, finalAction, error);
+            if (iterationCount > 0 && agentRun.Status == AgentRunStatus.Running)
+            {
+                agentRun.AddStep(
+                    iterationCount,
+                    finalAction,
+                    TraceLogSanitizer.Truncate(TraceLogSanitizer.FormatJson(lastInput)),
+                    null,
+                    error,
+                    0);
+                await _unitOfWork.CompleteAsync(cancellationToken);
+            }
+
+            return await CompleteRunAsync(state, agentRun, totalStopwatch, iterationCount, false, finalAction, error, cancellationToken);
         }
         finally
         {
@@ -281,7 +340,7 @@ public sealed class Agent
                         actionName,
                         actionStopwatch.ElapsedMilliseconds,
                         TraceLogSanitizer.Truncate(TraceLogSanitizer.FormatOutput(result)));
-                    return new ActionAttemptResult(true, result, null);
+                    return new ActionAttemptResult(true, result, null, actionStopwatch.ElapsedMilliseconds);
                 }
             }
             catch (Exception exception)
@@ -310,7 +369,7 @@ public sealed class Agent
             }
         }
 
-        return new ActionAttemptResult(false, null, lastError);
+        return new ActionAttemptResult(false, null, lastError, null);
     }
 
     private ActionValidationResult ValidateActionExecution(Decision decision)
@@ -318,13 +377,15 @@ public sealed class Agent
         return _toolExecutor.ValidateAction(decision.Action, decision.Input);
     }
 
-    private AgentRunResult CompleteRun(
+    private async Task<AgentRunResult> CompleteRunAsync(
         AgentState state,
+        AgentRun agentRun,
         Stopwatch totalStopwatch,
         int steps,
         bool success,
         string? finalAction,
-        string? error)
+        string? error,
+        CancellationToken cancellationToken)
     {
         if (!success)
         {
@@ -334,6 +395,17 @@ public sealed class Agent
         }
 
         totalStopwatch.Stop();
+
+        if (success)
+        {
+            agentRun.Complete(finalAction, state.FinalOutput, totalStopwatch.ElapsedMilliseconds);
+        }
+        else if (agentRun.Status == AgentRunStatus.Running)
+        {
+            agentRun.Fail(error ?? "Unexpected error", finalAction, totalStopwatch.ElapsedMilliseconds);
+        }
+
+        await _unitOfWork.CompleteAsync(cancellationToken);
 
         var summary = new AgentRunSummary
         {
@@ -363,5 +435,5 @@ public sealed class Agent
 
     private sealed record DecisionAttemptResult(bool Success, string? DecisionJson, Decision? Decision, string? ErrorMessage);
 
-    private sealed record ActionAttemptResult(bool Success, string? Result, string? ErrorMessage);
+    private sealed record ActionAttemptResult(bool Success, string? Result, string? ErrorMessage, long? DurationMs);
 }

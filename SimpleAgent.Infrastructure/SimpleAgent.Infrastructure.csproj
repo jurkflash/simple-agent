@@ -6,9 +6,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.17" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
     <PackageReference Include="Pokok.BuildingBlocks.Cqrs" Version="1.6.0" />
+    <PackageReference Include="Pokok.BuildingBlocks.Persistence" Version="1.0.0" />
   </ItemGroup>
 
   <PropertyGroup>
