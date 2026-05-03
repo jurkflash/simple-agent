@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace SimpleAgent.Models;
+namespace SimpleAgent.Domain.Models;
 
 public sealed class Decision
 {
