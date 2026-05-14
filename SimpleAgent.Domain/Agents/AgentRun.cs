@@ -12,7 +12,7 @@ public sealed class AgentRun : EntityBase
         Goal = string.Empty;
     }
 
-    public AgentRun(string correlationId, string goal)
+    public AgentRun(string correlationId, string goal, Guid? replayOfRunId = null)
     {
         if (string.IsNullOrWhiteSpace(correlationId))
         {
@@ -26,12 +26,17 @@ public sealed class AgentRun : EntityBase
 
         CorrelationId = correlationId;
         Goal = goal;
+        ReplayOfRunId = replayOfRunId;
         Status = AgentRunStatus.Running;
     }
 
     public string CorrelationId { get; private set; }
 
     public string Goal { get; private set; }
+
+    public Guid? ReplayOfRunId { get; private set; }
+
+    public bool IsReplay => ReplayOfRunId.HasValue;
 
     public AgentRunStatus Status { get; private set; }
 

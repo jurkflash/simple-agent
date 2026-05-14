@@ -3,24 +3,47 @@ using SimpleAgent.Domain.Models;
 
 namespace SimpleAgent.Application.Agents;
 
-public sealed record AllowedActionDefinition(string Name, string Description, Type RequestType);
+public sealed record AgentActionDefinition(
+    string Name,
+    string Description,
+    Type? RequestType,
+    bool Replayable,
+    bool Idempotent);
 
 public static class AllowedActions
 {
-    public static readonly AllowedActionDefinition GetComplaints = new(
+    public static readonly AgentActionDefinition GetComplaints = new(
         "get_complaints",
         "Fetch complaint counts for a month.",
-        typeof(GetComplaintsQuery));
+        typeof(GetComplaintsQuery),
+        Replayable: true,
+        Idempotent: true);
 
-    private static readonly IReadOnlyDictionary<string, AllowedActionDefinition> Definitions =
-        new Dictionary<string, AllowedActionDefinition>(StringComparer.OrdinalIgnoreCase)
+    public static readonly AgentActionDefinition Finish = new(
+        "finish",
+        "Finish the agent run with a final answer.",
+        null,
+        Replayable: true,
+        Idempotent: true);
+
+    public static readonly AgentActionDefinition LlmDecision = new(
+        "llm_decision",
+        "Internal LLM decision step.",
+        null,
+        Replayable: true,
+        Idempotent: true);
+
+    private static readonly IReadOnlyDictionary<string, AgentActionDefinition> Definitions =
+        new Dictionary<string, AgentActionDefinition>(StringComparer.OrdinalIgnoreCase)
         {
-            [GetComplaints.Name] = GetComplaints
+            [GetComplaints.Name] = GetComplaints,
+            [Finish.Name] = Finish,
+            [LlmDecision.Name] = LlmDecision
         };
 
-    public static IEnumerable<AllowedActionDefinition> All => Definitions.Values;
+    public static IEnumerable<AgentActionDefinition> All => Definitions.Values;
 
-    public static bool TryGet(string actionName, out AllowedActionDefinition? definition)
+    public static bool TryGet(string actionName, out AgentActionDefinition? definition)
     {
         return Definitions.TryGetValue(actionName, out definition);
     }
@@ -30,7 +53,7 @@ public static class AllowedActions
         return action switch
         {
             DecisionAction.GetComplaints => GetComplaints.Name,
-            DecisionAction.Finish => "finish",
+            DecisionAction.Finish => Finish.Name,
             _ => "unknown"
         };
     }

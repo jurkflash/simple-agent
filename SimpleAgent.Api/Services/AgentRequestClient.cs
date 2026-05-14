@@ -13,16 +13,16 @@ public sealed class AgentRequestClient
     private const string AgentResponsesQueueName = "agent-responses";
     private static readonly TimeSpan ResponseTimeout = TimeSpan.FromSeconds(30);
 
-    private readonly IRabbitMQConnection _rabbitMqConnection;
+    private readonly AgentJobPublisher _agentJobPublisher;
     private readonly PendingAgentRequests _pendingRequests;
     private readonly ILogger<AgentRequestClient> _logger;
 
     public AgentRequestClient(
-        IRabbitMQConnection rabbitMqConnection,
+        AgentJobPublisher agentJobPublisher,
         PendingAgentRequests pendingRequests,
         ILogger<AgentRequestClient> logger)
     {
-        _rabbitMqConnection = rabbitMqConnection;
+        _agentJobPublisher = agentJobPublisher;
         _pendingRequests = pendingRequests;
         _logger = logger;
     }
@@ -46,31 +46,7 @@ public sealed class AgentRequestClient
                 goal,
                 AgentJobsQueueName);
 
-            using var channel = await _rabbitMqConnection.CreateChannelAsync();
-            await channel.QueueDeclareAsync(
-                queue: AgentJobsQueueName,
-                durable: true,
-                exclusive: false,
-                autoDelete: false,
-                arguments: null,
-                cancellationToken: cancellationToken);
-
-            var payload = JsonSerializer.Serialize(message);
-            var body = Encoding.UTF8.GetBytes(payload);
-            var properties = new BasicProperties
-            {
-                ContentType = "application/json",
-                DeliveryMode = DeliveryModes.Persistent,
-                ReplyTo = AgentResponsesQueueName
-            };
-
-            await channel.BasicPublishAsync(
-                exchange: string.Empty,
-                routingKey: AgentJobsQueueName,
-                mandatory: true,
-                basicProperties: properties,
-                body: body,
-                cancellationToken: cancellationToken);
+            await _agentJobPublisher.PublishAsync(message, cancellationToken);
 
             _logger.LogInformation(
                 "[TraceId: {CorrelationId}] Waiting for agent response on queue {QueueName}",
