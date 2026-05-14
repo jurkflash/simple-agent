@@ -29,6 +29,11 @@
   - run state transitions handled in the domain (`AddStep`, `Complete`, `Fail`)
   - SQLite-backed persistence through `Pokok.BuildingBlocks.Persistence`
   - execution history stored per correlation ID
+- **Safe replay for failed runs**:
+  - replay creates a brand-new `AgentRun` with a new correlation ID
+  - replay runs point back to the original run with `ReplayOfRunId`
+  - only failed runs can be replayed
+  - replay is rejected when recorded actions are not marked replayable and idempotent
 - **Layered solution structure**:
   - `Agent`: hosted worker entrypoint / composition root
   - `SimpleAgent.Api`: ASP.NET Core API publisher and response listener
@@ -50,6 +55,15 @@
 10. The worker publishes an `AgentResultMessage` to the reply queue (`agent-responses`).
 11. The API response listener matches the correlation ID, completes the pending request, and the HTTP endpoint returns the result or a timeout/error response.
 
+Replay flow:
+
+1. The API receives `POST /agent/runs/{agentRunId}/replay`.
+2. The replay command loads the original run and verifies it is failed.
+3. The failed run's recorded actions are checked against replay safety metadata.
+4. A brand-new replay run is created with a new correlation ID and `ReplayOfRunId` set to the original run.
+5. A new RabbitMQ job is published for the replay run.
+6. The original run remains immutable and the replay chain stays auditable.
+
 ## Message contract
 
 Request messages in `agent-jobs` are JSON serialized using this shape:
@@ -58,7 +72,8 @@ Request messages in `agent-jobs` are JSON serialized using this shape:
 {
   "goal": "Generate complaint summary for April",
   "correlationId": "9f1f0ffb-6f34-45f8-8e95-1a4dc9f9d1b3",
-  "replyTo": "agent-responses"
+  "replyTo": "agent-responses",
+  "replayOfRunId": null
 }
 ```
 
@@ -75,7 +90,8 @@ Response messages in `agent-responses` use this shape:
 
 - `goal`: the natural-language task for the agent to execute
 - `correlationId`: trace identifier propagated through the worker, agent, LLM, CQRS, and logs
-- `replyTo`: response queue the worker should publish back to
+- `replyTo`: optional response queue the worker should publish back to
+- `replayOfRunId`: original run ID when the job was queued as a replay
 - `success`: whether the worker completed the agent run successfully
 - `result`: final agent output when successful
 - `error`: failure message when unsuccessful
@@ -124,6 +140,12 @@ Content-Type: application/json
 }
 ```
 
+Replay a failed run:
+
+```http
+POST /agent/runs/{agentRunId}/replay
+```
+
 RabbitMQ configuration is read from the `RabbitMQ` configuration section, for example via environment variables:
 
 ```text
@@ -149,4 +171,5 @@ dotnet build simple-agent.sln
 
 - Prompt and raw LLM response logging is truncated to reduce the risk of leaking sensitive data.
 - The worker creates the SQLite database automatically on startup if it does not exist yet.
+- Replay requests return structured validation errors for missing runs, invalid run status, and unsafe recorded actions.
 - The project is intentionally simple: it demonstrates the mechanics of an AI agent without introducing external observability tooling or a large action catalog.

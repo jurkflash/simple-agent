@@ -5,7 +5,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SimpleAgent.Application\SimpleAgent.Application.csproj" />
     <ProjectReference Include="..\SimpleAgent.Domain\SimpleAgent.Domain.csproj" />
+    <ProjectReference Include="..\SimpleAgent.Infrastructure\SimpleAgent.Infrastructure.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

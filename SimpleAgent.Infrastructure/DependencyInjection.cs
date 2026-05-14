@@ -15,26 +15,32 @@ namespace SimpleAgent.Infrastructure;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration, string apiKey)
+    public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration, string? apiKey = null)
     {
         var connectionString = configuration.GetConnectionString("AgentRuns") ?? "Data Source=agent-runs.db";
 
         services.AddSingleton<ICorrelationContextAccessor, CorrelationContextAccessor>();
         services.AddSingleton<HttpClient>();
         services.AddDbContext<AgentDbContext>(options => options.UseSqlite(connectionString));
+        services.AddScoped<ICommandDispatcher, CommandDispatcher>();
         services.AddScoped<IQueryDispatcher, QueryDispatcher>();
         services.AddScoped<ICurrentUserService, AgentCurrentUserService>();
         services.AddScoped<IUnitOfWork, AgentUnitOfWork>();
         services.AddScoped<IAgentPermissionService, DefaultAgentPermissionService>();
         services.AddScoped<IAgentRunRepository, AgentRunRepository>();
-        services.AddScoped<LlmClient>(serviceProvider => new LlmClient(
-            serviceProvider.GetRequiredService<HttpClient>(),
-            apiKey,
-            serviceProvider.GetRequiredService<ICorrelationContextAccessor>(),
-            serviceProvider.GetRequiredService<ILogger<LlmClient>>()));
-        services.AddScoped<ILlmClient>(serviceProvider => serviceProvider.GetRequiredService<LlmClient>());
-        services.AddScoped<CqrsToolAdapter>();
-        services.AddScoped<IAgentToolExecutor>(serviceProvider => serviceProvider.GetRequiredService<CqrsToolAdapter>());
+
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            services.AddScoped<LlmClient>(serviceProvider => new LlmClient(
+                serviceProvider.GetRequiredService<HttpClient>(),
+                apiKey,
+                serviceProvider.GetRequiredService<ICorrelationContextAccessor>(),
+                serviceProvider.GetRequiredService<ILogger<LlmClient>>()));
+            services.AddScoped<ILlmClient>(serviceProvider => serviceProvider.GetRequiredService<LlmClient>());
+            services.AddScoped<CqrsToolAdapter>();
+            services.AddScoped<IAgentToolExecutor>(serviceProvider => serviceProvider.GetRequiredService<CqrsToolAdapter>());
+        }
+
         return services;
     }
 }

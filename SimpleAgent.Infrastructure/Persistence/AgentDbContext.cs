@@ -30,6 +30,9 @@ public sealed class AgentDbContext : DbContextBase
             builder.Property(run => run.CorrelationId).HasMaxLength(100).IsRequired();
             builder.HasIndex(run => run.CorrelationId).IsUnique();
             builder.Property(run => run.Goal).IsRequired();
+            builder.Property(run => run.ReplayOfRunId);
+            builder.HasIndex(run => run.ReplayOfRunId);
+            builder.Ignore(run => run.IsReplay);
             builder.Property(run => run.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
             builder.Property(run => run.FinalAction).HasMaxLength(100);
             builder.Property(run => run.DurationMs);

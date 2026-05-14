@@ -39,6 +39,7 @@ public sealed class Agent
     public async Task<AgentRunResult> RunAsync(
         string goal,
         string? correlationId = null,
+        Guid? replayOfRunId = null,
         CancellationToken cancellationToken = default)
     {
         correlationId = string.IsNullOrWhiteSpace(correlationId)
@@ -54,7 +55,8 @@ public sealed class Agent
         });
 
         var state = new AgentState(goal, correlationId);
-        var agentRun = new AgentRun(correlationId, goal);
+        var agentRun = await _agentRunRepository.GetByCorrelationIdAsync(correlationId, cancellationToken)
+            ?? new AgentRun(correlationId, goal, replayOfRunId);
         var totalStopwatch = Stopwatch.StartNew();
         var iterationCount = 0;
         var finalAction = "unknown";
@@ -67,8 +69,21 @@ public sealed class Agent
                 "[TraceId: {CorrelationId}] Agent run started for goal {Goal}",
                 correlationId,
                 goal);
-            await _agentRunRepository.AddAsync(agentRun, cancellationToken);
-            await _unitOfWork.CompleteAsync(cancellationToken);
+
+            if (agentRun.Id == Guid.Empty)
+            {
+                await _agentRunRepository.AddAsync(agentRun, cancellationToken);
+                await _unitOfWork.CompleteAsync(cancellationToken);
+            }
+            else
+            {
+                EnsureReplayExecutionCanStart(agentRun, goal, replayOfRunId);
+                _logger.LogInformation(
+                    "[TraceId: {CorrelationId}] Reusing existing persisted run {AgentRunId} with replayOfRunId={ReplayOfRunId}",
+                    correlationId,
+                    agentRun.Id,
+                    agentRun.ReplayOfRunId);
+            }
 
             while (!state.IsFinished)
             {
@@ -431,6 +446,29 @@ public sealed class Agent
             Output = state.FinalOutput ?? string.Empty,
             Summary = summary
         };
+    }
+
+    private static void EnsureReplayExecutionCanStart(AgentRun agentRun, string goal, Guid? replayOfRunId)
+    {
+        if (!string.Equals(agentRun.Goal, goal, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("The persisted agent run goal does not match the queued job goal.");
+        }
+
+        if (agentRun.Status != AgentRunStatus.Running)
+        {
+            throw new InvalidOperationException("Only running persisted agent runs can be executed.");
+        }
+
+        if (agentRun.ReplayOfRunId != replayOfRunId)
+        {
+            throw new InvalidOperationException("The queued replay metadata does not match the persisted agent run.");
+        }
+
+        if (agentRun.Steps.Count > 0)
+        {
+            throw new InvalidOperationException("The persisted agent run has already started and cannot be resumed.");
+        }
     }
 
     private sealed record DecisionAttemptResult(bool Success, string? DecisionJson, Decision? Decision, string? ErrorMessage);

@@ -96,16 +96,12 @@ public sealed class AgentWorker : BackgroundService
                 throw new InvalidOperationException("Agent job message correlation ID is required.");
             }
 
-            if (string.IsNullOrWhiteSpace(message.ReplyTo))
-            {
-                throw new InvalidOperationException("Agent job message reply queue is required.");
-            }
-
             _logger.LogInformation(
-                "[TraceId: {CorrelationId}] Message received from queue {QueueName} with goal {Goal}",
+                "[TraceId: {CorrelationId}] Message received from queue {QueueName} with goal {Goal} and replayOfRunId={ReplayOfRunId}",
                 message.CorrelationId,
                 QueueName,
-                message.Goal);
+                message.Goal,
+                message.ReplayOfRunId);
 
             await using var scope = _serviceScopeFactory.CreateAsyncScope();
             var agent = scope.ServiceProvider.GetRequiredService<Agent>();
@@ -118,7 +114,7 @@ public sealed class AgentWorker : BackgroundService
 
             try
             {
-                var result = await agent.RunAsync(message.Goal, message.CorrelationId, cancellationToken);
+                var result = await agent.RunAsync(message.Goal, message.CorrelationId, message.ReplayOfRunId, cancellationToken);
 
                 _logger.LogInformation(
                     "[TraceId: {CorrelationId}] Finished agent job processing with success={Success}, finalAction={FinalAction}, output={Output}",
@@ -152,7 +148,16 @@ public sealed class AgentWorker : BackgroundService
                 };
             }
 
-            await PublishResultAsync(message.ReplyTo, resultMessage, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(message.ReplyTo))
+            {
+                await PublishResultAsync(message.ReplyTo, resultMessage, cancellationToken);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "[TraceId: {CorrelationId}] No reply queue was requested for this job; result publication skipped",
+                    resultMessage.CorrelationId);
+            }
             await _channel!.BasicAckAsync(eventArgs.DeliveryTag, multiple: false, cancellationToken: cancellationToken);
         }
         catch (Exception exception)
